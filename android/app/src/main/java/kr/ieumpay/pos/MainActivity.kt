@@ -81,7 +81,7 @@ class MainActivity : Activity() {
     private fun go(s:String) { if(!busy) {screen=s;draw()} }
     private fun draw() {
         root=LinearLayout(this);root.orientation=LinearLayout.VERTICAL;root.setPadding(dp(20),dp(26),dp(20),dp(12));root.setBackgroundColor(Color.rgb(246,248,245));setContentView(root)
-        val logo = text(root,"이음 pay     /     성수점 테스트 POS",22f,green,true)
+        val logo = text(root,"이음 pay     /     성수점 · 셀프 주문",22f,green,true)
         logo.contentDescription = "이음페이 · 길게 눌러 관리 메뉴 열기"
         logo.setOnLongClickListener {
             if(loggedIn && !busy && prefs.getString("pending",null)==null) {
@@ -113,8 +113,8 @@ class MainActivity : Activity() {
             work({request("/api/health")},{ data->require(data.optBoolean("ok")&&data.optString("mode")=="demo");prefs.edit().putBoolean("registered",true).apply();loggedIn=true;if(prefs.getString("pending",null)!=null)go("pending") else load("order")})
         }
     }
-    private fun login(){val p=panel(body);text(p,"T02 · 직원 진입",26f,green,true);text(p,"성수점 · 데모 직원",18f);text(p,"인증 서버 미연동: 비밀번호를 입력·저장하지 않습니다. 아래 버튼은 데모 진입이며 실제 로그인이 아닙니다.",14f,muted)
-        button(p,"데모 직원으로 시작") { loggedIn=true;if(prefs.getString("pending",null)!=null){go("pending")}else load("order") }
+    private fun login(){val p=panel(body);text(p,"이음페이에 오신 것을 환영합니다",26f,green,true);text(p,"메뉴를 고르고 편하게 주문하세요",18f);text(p,"테스트 주문 화면입니다. 실제 결제나 고객 인증은 진행되지 않습니다.",14f,muted)
+        button(p,"주문 시작하기") { loggedIn=true;if(prefs.getString("pending",null)!=null){go("pending")}else load("order") }
         if(prefs.getString("pending",null)==null)button(p,"서버 연결 설정") {go("register")}
     }
     private fun load(next:String){work({request("/api/state")},{state=it;screen=next;draw()})}
@@ -192,7 +192,6 @@ class MainActivity : Activity() {
         button(summary,"${won(total)}원 결제하기 →",cart.isNotEmpty()) {
             amount=cartTotal();go("method")
         }
-        button(summary,"직접 금액 입력") { directAmount() }
         if(cart.isNotEmpty())button(summary,"주문 비우기") {
             AlertDialog.Builder(this).setMessage("담은 메뉴를 모두 비울까요?")
                 .setNegativeButton("유지",null).setPositiveButton("비우기") { _,_->
@@ -216,31 +215,17 @@ class MainActivity : Activity() {
         }
         cart[name]=(cart[name]?:0)+1;updateCartAmount();redrawOrder()
     }
-    private fun directAmount() {
-        val field=EditText(this).apply {
-            hint="결제 금액 (원)";inputType=android.text.InputType.TYPE_CLASS_NUMBER
-            setSingleLine()
-        }
-        val dialog=AlertDialog.Builder(this).setTitle("직접 금액 입력")
-            .setMessage("직접 입력으로 진행하면 담은 메뉴가 비워집니다.")
-            .setView(field).setNegativeButton("돌아가기",null).setPositiveButton("결제수단 선택",null).create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val n=field.text.toString().toLongOrNull()
-                if(n==null || n !in 1..1000000) field.error="1~1,000,000원의 정수 금액을 입력하세요."
-                else { amount=n;cart.clear();dialog.dismiss();go("method") }
-            }
-        }
-        dialog.show()
-    }
-    private fun methods(){val p=panel(body);text(p,"T05 · 결제수단",26f,green,true);text(p,"${won(amount)} 원",36f,green,true)
+    private fun methods(){val p=panel(body);text(p,"결제 방법을 선택해 주세요",26f,green,true);text(p,"${won(amount)} 원",36f,green,true)
         text(p,"코인 테스트는 고객 인증 없이 데모 지갑에서 차감합니다. 실서비스의 고객 동의를 대체하지 않습니다.",14f,muted)
         button(p,"이음 코인 · 테스트 승인 확인") {AlertDialog.Builder(this).setTitle("테스트 코인 결제").setMessage("데모 지갑에서 ${won(amount)} C를 차감할까요? 실제 고객 결제가 아닙니다.").setNegativeButton("돌아가기",null).setPositiveButton("테스트 승인"){_,_->startPayment()}.show()}
         listOf("카드 / Apple Pay / 삼성페이 · 리더기 연결 필요","카카오페이 · 미연동","네이버페이 · 미연동").forEach{button(p,it,false){}}
-        button(p,"금액 수정"){go("order")}
+        button(p,"메뉴 다시 선택"){go("order")}
     }
     private fun startPayment(){
         if(busy || prefs.getString("pending",null)!=null) return
+        if(cart.isEmpty() || amount != cartTotal() || amount !in 1..1000000) {
+            alert("메뉴를 선택한 뒤 주문을 확인해 주세요.");go("order");return
+        }
         val payload=JSONObject().put("amount",amount).put("method","coin").put("requestKey",UUID.randomUUID().toString())
         if(!prefs.edit().putString("pending",payload.toString()).commit()){alert("복구 정보를 저장하지 못해 결제를 시작하지 않았습니다.");return}
         screen="pending";draw();retry()
@@ -262,8 +247,8 @@ class MainActivity : Activity() {
         button(p,"거래 내역으로"){go("history")}
     }
     private fun device(){val p=panel(body);text(p,"T10 · 장비와 앱 상태",26f,green,true);val cm=getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        text(p,"기기: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\nAndroid ${android.os.Build.VERSION.RELEASE}\n앱: 0.3.0-demo\n네트워크: ${if(cm.activeNetwork!=null)"연결 감지 (서버 통신 별도 확인)" else "연결 없음"}\n리더기: 미연동\n단말 자격·원격 차단·업데이트: 미구현",16f)
-        button(p,"서버 응답 확인"){work({request("/api/health")},{alert("테스트 서버 정상 응답")})};button(p,"데모 직원 나가기"){loggedIn=false;go("login")}
+        text(p,"기기: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\nAndroid ${android.os.Build.VERSION.RELEASE}\n앱: 0.3.1-demo\n네트워크: ${if(cm.activeNetwork!=null)"연결 감지 (서버 통신 별도 확인)" else "연결 없음"}\n리더기: 미연동\n단말 자격·원격 차단·업데이트: 미구현",16f)
+        button(p,"서버 응답 확인"){work({request("/api/health")},{alert("테스트 서버 정상 응답")})};button(p,"주문 시작 화면으로"){loggedIn=false;go("login")}
     }
     private fun time(s:String):String=try{DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss").withZone(ZoneId.of("Asia/Seoul")).format(Instant.parse(s))}catch(e:Exception){s}
     private fun alert(s:String){if(!isFinishing)AlertDialog.Builder(this).setMessage(s).setPositiveButton("확인",null).show()}
