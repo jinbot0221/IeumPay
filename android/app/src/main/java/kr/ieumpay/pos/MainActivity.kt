@@ -29,8 +29,8 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private lateinit var body: LinearLayout
     private var state: JSONObject? = null
-    private var screen = "home"
-    private var amount = 15000L
+    private var screen = "order"
+    private var amount = 0L
     private var busy = false
     private var current: JSONObject? = null
     private var loggedIn = false
@@ -81,12 +81,22 @@ class MainActivity : Activity() {
     private fun go(s:String) { if(!busy) {screen=s;draw()} }
     private fun draw() {
         root=LinearLayout(this);root.orientation=LinearLayout.VERTICAL;root.setPadding(dp(20),dp(26),dp(20),dp(12));root.setBackgroundColor(Color.rgb(246,248,245));setContentView(root)
-        text(root,"이음 pay     /     성수점 테스트 POS",22f,green,true)
+        val logo = text(root,"이음 pay     /     성수점 테스트 POS",22f,green,true)
+        logo.contentDescription = "이음페이 · 길게 눌러 관리 메뉴 열기"
+        logo.setOnLongClickListener {
+            if(loggedIn && !busy && prefs.getString("pending",null)==null) {
+                AlertDialog.Builder(this).setTitle("관리 메뉴")
+                    .setItems(arrayOf("홈 · 거래 현황", "장비 상태")) { _, which ->
+                        if(which==0) load("home") else go("device")
+                    }.setNegativeButton("닫기",null).show()
+            }
+            true
+        }
         text(root,"개발 데모 · 실제 청구·충전·정산은 발생하지 않습니다",12f,Color.rgb(145,107,41))
         if(loggedIn){
             val nav=LinearLayout(this);root.addView(nav)
-            listOf("home" to "홈","order" to "새 결제","history" to "거래 내역","device" to "장비 상태").forEach { (s,label)->
-                val b=Button(this);b.text=label;b.isAllCaps=false;b.isEnabled=!busy&&prefs.getString("pending",null)==null;nav.addView(b,LinearLayout.LayoutParams(0,dp(52),1f));b.setOnClickListener{go(s)}
+            listOf("order" to "새 결제","history" to "거래 내역").forEach { (s,label)->
+                val b=Button(this);b.text=label;b.isAllCaps=false;b.isEnabled=!busy&&prefs.getString("pending",null)==null;nav.addView(b,LinearLayout.LayoutParams(0,dp(52),1f));b.setOnClickListener{if(s=="history") load(s) else go(s)}
             }
         }
         val scroll=ScrollView(this);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f));body=LinearLayout(this);body.orientation=LinearLayout.VERTICAL;body.setPadding(0,dp(16),0,0);scroll.addView(body)
@@ -100,11 +110,11 @@ class MainActivity : Activity() {
             val url=endpoint.text.toString().trim().trimEnd('/')
             try{val uri=URI(url);require(uri.scheme in listOf("http","https")&&!uri.host.isNullOrBlank()&&uri.userInfo==null&&uri.query==null&&uri.fragment==null&&(uri.path==""||uri.path=="/"))}catch(e:Exception){alert("올바른 HTTP(S) 서버 주소를 입력하세요.");return@button}
             prefs.edit().putString("endpoint",url).apply()
-            work({request("/api/health")},{ data->require(data.optBoolean("ok")&&data.optString("mode")=="demo");prefs.edit().putBoolean("registered",true).apply();go("login")})
+            work({request("/api/health")},{ data->require(data.optBoolean("ok")&&data.optString("mode")=="demo");prefs.edit().putBoolean("registered",true).apply();loggedIn=true;if(prefs.getString("pending",null)!=null)go("pending") else load("order")})
         }
     }
     private fun login(){val p=panel(body);text(p,"T02 · 직원 진입",26f,green,true);text(p,"성수점 · 데모 직원",18f);text(p,"인증 서버 미연동: 비밀번호를 입력·저장하지 않습니다. 아래 버튼은 데모 진입이며 실제 로그인이 아닙니다.",14f,muted)
-        button(p,"데모 직원으로 시작") { loggedIn=true;if(prefs.getString("pending",null)!=null){go("pending")}else load("home") }
+        button(p,"데모 직원으로 시작") { loggedIn=true;if(prefs.getString("pending",null)!=null){go("pending")}else load("order") }
         if(prefs.getString("pending",null)==null)button(p,"서버 연결 설정") {go("register")}
     }
     private fun load(next:String){work({request("/api/state")},{state=it;screen=next;draw()})}
@@ -116,14 +126,112 @@ class MainActivity : Activity() {
         button(p,"새 결제 시작 →"){cart.clear();go("order")};button(p,"현황 새로고침"){load("home")}
         val note=panel(body);text(note,"연동 준비 상태",18f,green,true);text(note,"코인: 서버 테스트 차감·복원 가능\n고객 QR 확인: 미구현\n카드 · Apple Pay · 삼성페이: 리더기 미연동\n카카오페이 · 네이버페이: 계약·모듈 미연동",14f,muted)
     }
-    private fun order(){val p=panel(body);text(p,"T04 · 주문 만들기",26f,green,true)
-        text(p,"상품 선택 (샘플 가격)",14f,muted)
-        products.forEach{(name,price)->button(p,"$name   ${won(price.toLong())}원   × ${cart[name]?:0}"){cart[name]=(cart[name]?:0)+1;amount=cart.entries.sumOf{products[it.key]!!.toLong()*it.value};draw()}}
-        val value=input(p,"직접 결제 금액 (원)",amount.toString(),true)
-        text(p,"직접 입력 금액은 상품 주문과 별도입니다. 한 번에 한 방식만 선택하세요.",12f,muted)
-        button(p,"직접 입력 금액으로 진행") {val n=value.text.toString().toLongOrNull();if(n==null||n !in 1..1000000){alert("1~1,000,000원의 정수 금액을 입력하세요.");return@button};amount=n;cart.clear();go("method")}
-        button(p,"선택 상품 합계로 진행",cart.isNotEmpty()){amount=cart.entries.sumOf{products[it.key]!!.toLong()*it.value};if(amount !in 1..1000000)alert("결제 한도를 초과했습니다.") else go("method")}
-        button(p,"주문 초기화"){AlertDialog.Builder(this).setMessage("주문을 초기화할까요?").setNegativeButton("유지",null).setPositiveButton("초기화"){_,_->cart.clear();amount=0;draw()}.show()}
+    private fun order() {
+        text(body,"어떤 메뉴를 담아드릴까요?",28f,green,true)
+        text(body,"상품을 눌러 주문에 담고 결제를 진행하세요. · 샘플 메뉴",14f,muted)
+        val columns = if(resources.configuration.screenWidthDp >= 840) 3 else 2
+        val images = mapOf("아메리카노" to R.drawable.menu_americano,
+            "카페라떼" to R.drawable.menu_latte, "바닐라 라떼" to R.drawable.menu_vanilla,
+            "크루아상" to R.drawable.menu_croissant)
+        products.entries.toList().chunked(columns).forEach { entries ->
+            val row = LinearLayout(this)
+            body.addView(row,LinearLayout.LayoutParams(-1,-2))
+            entries.forEach { (name,price) ->
+                val card = LinearLayout(this).apply {
+                    orientation=LinearLayout.VERTICAL
+                    setPadding(dp(14),dp(12),dp(14),dp(12))
+                    background=GradientDrawable().apply {
+                        setColor(Color.WHITE);cornerRadius=dp(14).toFloat()
+                        setStroke(dp(1),Color.rgb(225,233,226))
+                    }
+                    isEnabled=!busy
+                    contentDescription="$name, ${won(price.toLong())}원, 눌러서 추가"
+                    isFocusable=true
+                    setOnClickListener { addProduct(name) }
+                }
+                row.addView(card,LinearLayout.LayoutParams(0,-2,1f).apply {
+                    setMargins(dp(4),dp(6),dp(4),dp(6))
+                })
+                val image=ImageView(this).apply {
+                    setImageResource(images.getValue(name))
+                    scaleType=ImageView.ScaleType.FIT_CENTER
+                    importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }
+                card.addView(image,LinearLayout.LayoutParams(-1,dp(130)))
+                text(card,name,18f,green,true)
+                text(card,"${won(price.toLong())}원",16f)
+                text(card,if((cart[name]?:0)>0) "${cart[name]}개 담김 · 눌러서 추가" else "＋ 주문에 담기",12f,muted)
+            }
+            repeat(columns-entries.size) { row.addView(Space(this),LinearLayout.LayoutParams(0,1,1f)) }
+        }
+        val summary=panel(body)
+        text(summary,"담은 메뉴",20f,green,true)
+        if(cart.isEmpty()) text(summary,"메뉴를 선택하면 이곳에 표시됩니다.",14f,muted)
+        cart.forEach { (name,count) ->
+            val line=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL }
+            summary.addView(line)
+            val label=TextView(this).apply {
+                text="$name   ${count}개\n${won(products.getValue(name).toLong()*count)}원"
+                textSize=15f;setTextColor(green)
+            }
+            line.addView(label,LinearLayout.LayoutParams(0,-2,1f))
+            listOf("−" to -1, "＋" to 1).forEach { (label,delta) ->
+                val change=Button(this).apply {
+                    text=label;isEnabled=!busy
+                    contentDescription="$name ${if(delta<0) "수량 줄이기" else "수량 늘리기"}"
+                    setOnClickListener {
+                        if(delta>0) addProduct(name)
+                        else { if(count==1)cart.remove(name) else cart[name]=count-1; updateCartAmount();redrawOrder() }
+                    }
+                }
+                line.addView(change,LinearLayout.LayoutParams(dp(58),dp(52)))
+            }
+        }
+        val total=cartTotal()
+        text(summary,"합계  ${won(total)} 원",26f,green,true)
+        button(summary,"${won(total)}원 결제하기 →",cart.isNotEmpty()) {
+            amount=cartTotal();go("method")
+        }
+        button(summary,"직접 금액 입력") { directAmount() }
+        if(cart.isNotEmpty())button(summary,"주문 비우기") {
+            AlertDialog.Builder(this).setMessage("담은 메뉴를 모두 비울까요?")
+                .setNegativeButton("유지",null).setPositiveButton("비우기") { _,_->
+                    cart.clear();amount=0;draw()
+                }.show()
+        }
+    }
+    private fun cartTotal() = cart.entries.sumOf { products.getValue(it.key).toLong()*it.value }
+    private fun updateCartAmount() { amount=cartTotal() }
+    private fun redrawOrder() {
+        val scrollY=(root.getChildAt(root.childCount-1) as? ScrollView)?.scrollY ?: 0
+        draw()
+        (root.getChildAt(root.childCount-1) as? ScrollView)?.let { scroll ->
+            scroll.post { scroll.scrollTo(0,scrollY) }
+        }
+    }
+    private fun addProduct(name:String) {
+        if(busy)return
+        if(cartTotal()+products.getValue(name)>1000000) {
+            alert("한 번에 1,000,000원까지 결제할 수 있습니다.");return
+        }
+        cart[name]=(cart[name]?:0)+1;updateCartAmount();redrawOrder()
+    }
+    private fun directAmount() {
+        val field=EditText(this).apply {
+            hint="결제 금액 (원)";inputType=android.text.InputType.TYPE_CLASS_NUMBER
+            setSingleLine()
+        }
+        val dialog=AlertDialog.Builder(this).setTitle("직접 금액 입력")
+            .setMessage("직접 입력으로 진행하면 담은 메뉴가 비워집니다.")
+            .setView(field).setNegativeButton("돌아가기",null).setPositiveButton("결제수단 선택",null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val n=field.text.toString().toLongOrNull()
+                if(n==null || n !in 1..1000000) field.error="1~1,000,000원의 정수 금액을 입력하세요."
+                else { amount=n;cart.clear();dialog.dismiss();go("method") }
+            }
+        }
+        dialog.show()
     }
     private fun methods(){val p=panel(body);text(p,"T05 · 결제수단",26f,green,true);text(p,"${won(amount)} 원",36f,green,true)
         text(p,"코인 테스트는 고객 인증 없이 데모 지갑에서 차감합니다. 실서비스의 고객 동의를 대체하지 않습니다.",14f,muted)
@@ -140,7 +248,7 @@ class MainActivity : Activity() {
     private fun pending(){val p=panel(body);text(p,"T06 · 결제 결과 확인 필요",26f,green,true);text(p,"통신 오류는 결제 실패를 뜻하지 않습니다. 기존 요청 키로 결과를 복구합니다. 확인 전 새 결제를 시작하지 마세요.",16f,muted)
         button(p,"기존 결제 요청으로 확인",!busy){retry()}
     }
-    private fun retry(){val raw=prefs.getString("pending",null)?:return;amount=JSONObject(raw).getLong("amount");work({request("/api/pay",JSONObject(raw))},{current=it;prefs.edit().remove("pending").commit();screen="result";draw()})}
+    private fun retry(){val raw=prefs.getString("pending",null)?:return;amount=JSONObject(raw).getLong("amount");work({request("/api/pay",JSONObject(raw))},{current=it;cart.clear();prefs.edit().remove("pending").commit();screen="result";draw()})}
     private fun result(){val p=panel(body);val t=current?:return;text(p,"T07 · 테스트 결제 완료",27f,green,true);text(p,"${won(t.getLong("amount"))} 원",38f,green,true);text(p,"이음 코인 · ${t.getString("status")}\n유료 ${won(t.getLong("paid"))} C / 혜택 ${won(t.getLong("benefit"))} C\n거래번호 ${t.getString("id")}\n${time(t.getString("created"))}",15f)
         text(p,"실제 영수증이 아닌 테스트 거래 명세입니다.",12f,muted);button(p,"거래 내역 보기"){load("history")};button(p,"새 결제"){amount=0;cart.clear();go("order")}
     }
@@ -154,7 +262,7 @@ class MainActivity : Activity() {
         button(p,"거래 내역으로"){go("history")}
     }
     private fun device(){val p=panel(body);text(p,"T10 · 장비와 앱 상태",26f,green,true);val cm=getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        text(p,"기기: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\nAndroid ${android.os.Build.VERSION.RELEASE}\n앱: 0.2.0-demo\n네트워크: ${if(cm.activeNetwork!=null)"연결 감지 (서버 통신 별도 확인)" else "연결 없음"}\n리더기: 미연동\n단말 자격·원격 차단·업데이트: 미구현",16f)
+        text(p,"기기: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\nAndroid ${android.os.Build.VERSION.RELEASE}\n앱: 0.3.0-demo\n네트워크: ${if(cm.activeNetwork!=null)"연결 감지 (서버 통신 별도 확인)" else "연결 없음"}\n리더기: 미연동\n단말 자격·원격 차단·업데이트: 미구현",16f)
         button(p,"서버 응답 확인"){work({request("/api/health")},{alert("테스트 서버 정상 응답")})};button(p,"데모 직원 나가기"){loggedIn=false;go("login")}
     }
     private fun time(s:String):String=try{DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss").withZone(ZoneId.of("Asia/Seoul")).format(Instant.parse(s))}catch(e:Exception){s}
@@ -169,6 +277,6 @@ class MainActivity : Activity() {
             if(code==400)throw Rejected(result.optString("error","서버가 요청을 거절했습니다."));if(code !in 200..299)throw Exception("서버 오류 $code · 결과를 다시 확인하세요.");return result
         }finally{c.disconnect()}
     }
-    @Deprecated("Deprecated in Java") override fun onBackPressed(){if(busy||prefs.getString("pending",null)!=null){alert("기존 결제의 결과를 먼저 확인하세요.");return};if(loggedIn)go("home")else super.onBackPressed()}
+    @Deprecated("Deprecated in Java") override fun onBackPressed(){if(busy||prefs.getString("pending",null)!=null){alert("기존 결제의 결과를 먼저 확인하세요.");return};if(loggedIn)go("order")else super.onBackPressed()}
     override fun onDestroy(){pool.shutdown();super.onDestroy()}
 }
