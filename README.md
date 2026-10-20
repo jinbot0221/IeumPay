@@ -2,6 +2,18 @@
 
 기획서 v0.5 기반의 태블릿 대응 웹앱 개발 프로토타입입니다. Node.js 24 이상에서 외부 패키지 없이 실행합니다.
 
+## Android 앱 실제 실행 화면
+
+`0.3.1-demo` APK를 Android 태블릿 크기 에뮬레이터에서 실행해 촬영했습니다. 합성 시안이 아닌 실제 앱 화면이며, 결제는 테스트 코인으로 진행했습니다.
+
+| 상품 선택 | 장바구니 |
+|---|---|
+| ![상품 선택](docs/screenshots/03-menu.png) | ![장바구니](docs/screenshots/04-cart.png) |
+| 결제수단 선택 | 테스트 결제 완료 |
+| ![결제수단](docs/screenshots/05-payment-methods.png) | ![결제 완료](docs/screenshots/07-payment-result.png) |
+
+[전체 13개 화면과 실행·촬영 조건 보기](docs/screenshots/README.md)
+
 ```sh
 cd /workspace/IeumPay
 npm start
